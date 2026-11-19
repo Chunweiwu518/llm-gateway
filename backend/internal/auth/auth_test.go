@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
+	"github.com/redis/go-redis/v9"
 
+	"github.com/Chunweiwu518/llm-gateway/backend/internal/ratelimit"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/store"
 )
 
@@ -167,5 +170,41 @@ func TestRegisterValidation(t *testing.T) {
 	e.register("dup@example.com")
 	if w := e.do("POST", "/api/auth/register", `{"email":"dup@example.com","password":"password123"}`); w.Code != 409 {
 		t.Fatalf("duplicate want 409 got %d", w.Code)
+	}
+}
+
+func setupLimited(t *testing.T) *env {
+	e := setup(t)
+	mr := miniredis.RunT(t)
+	e.h.Limiter = ratelimit.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	return e
+}
+
+func TestLoginAttemptsLimited(t *testing.T) {
+	e := setupLimited(t)
+	e.register("dev@example.com")
+	for i := 1; i <= LoginAttemptsPerMinute; i++ {
+		if w := e.login("dev@example.com", "wrong-password"); w.Code != 401 {
+			t.Fatalf("attempt %d: want 401 got %d", i, w.Code)
+		}
+	}
+	if w := e.login("dev@example.com", "password123"); w.Code != 429 {
+		t.Fatalf("over limit: want 429 even with the right password, got %d", w.Code)
+	}
+}
+
+func TestTOTPAttemptsLimited(t *testing.T) {
+	e := setupLimited(t)
+	e.register("dev@example.com")
+	secret := e.enableTOTP("dev@example.com")
+	p := cookie(e.login("dev@example.com", "password123"), PendingCookie)
+	for i := 1; i <= TOTPAttemptsPerMinute; i++ {
+		if w := e.do("POST", "/api/auth/login/totp", `{"code":"000000"}`, p); w.Code != 401 {
+			t.Fatalf("attempt %d: want 401 got %d", i, w.Code)
+		}
+	}
+	code, _ := totp.GenerateCode(secret, time.Now())
+	if w := e.do("POST", "/api/auth/login/totp", `{"code":"`+code+`"}`, p); w.Code != 429 {
+		t.Fatalf("over limit: want 429 got %d", w.Code)
 	}
 }

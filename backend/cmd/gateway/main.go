@@ -13,6 +13,7 @@ import (
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/auth"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/billing"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/config"
+	"github.com/Chunweiwu518/llm-gateway/backend/internal/httpx"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/ratelimit"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/relay"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/store"
@@ -39,7 +40,7 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(gin.Logger(), gin.Recovery(), httpx.LimitBody(httpx.MaxBodyBytes))
 	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Fatalf("trusted proxies: %v", err)
 	}
@@ -49,7 +50,8 @@ func main() {
 	r.StaticFile("/openapi.yaml", "docs/openapi.yaml")
 	r.GET("/docs", func(c *gin.Context) { c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(swaggerHTML)) })
 
-	authH := &auth.Handler{DB: db, JWT: auth.NewManager(cfg.JWTSecret), CookieSecure: cfg.CookieSecure}
+	limiter := ratelimit.New(rdb)
+	authH := &auth.Handler{DB: db, JWT: auth.NewManager(cfg.JWTSecret), CookieSecure: cfg.CookieSecure, Limiter: limiter}
 	requireUser := authH.RequireUser()
 	api := r.Group("/api")
 	authH.Routes(api)
@@ -57,7 +59,7 @@ func main() {
 	(&billing.Handler{DB: db}).Routes(api, requireUser)
 	(&admin.Handler{DB: db}).Routes(api.Group("/admin", requireUser, auth.RequireAdmin()))
 
-	v1 := r.Group("/v1", apikey.Authenticate(db), ratelimit.Middleware(ratelimit.New(rdb)))
+	v1 := r.Group("/v1", apikey.Authenticate(db), ratelimit.Middleware(limiter))
 	(&relay.Handler{DB: db, Router: relay.NewRouter(db, cfg.UpstreamTimeout)}).Routes(v1)
 
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: r, ReadHeaderTimeout: 10 * time.Second}

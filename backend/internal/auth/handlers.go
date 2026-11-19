@@ -13,7 +13,14 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/httpx"
+	"github.com/Chunweiwu518/llm-gateway/backend/internal/ratelimit"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/store"
+)
+
+// Attempt limits per minute. Every attempt counts, successful or not.
+const (
+	LoginAttemptsPerMinute = 10 // per email
+	TOTPAttemptsPerMinute  = 5  // per user
 )
 
 // Handler serves /api/auth and /api/me.
@@ -21,6 +28,22 @@ type Handler struct {
 	DB           *gorm.DB
 	JWT          *Manager
 	CookieSecure bool
+	Limiter      *ratelimit.Limiter // nil disables attempt limits
+}
+
+// tooMany counts an attempt and answers 429 when the limit is exceeded.
+func (h *Handler) tooMany(c *gin.Context, key string, limit int) bool {
+	if h.Limiter == nil {
+		return false
+	}
+	ok, err := h.Limiter.AllowKey(c.Request.Context(), key, limit)
+	if err != nil {
+		log.Printf("attempt limiter unavailable, allowing request: %v", err)
+	}
+	if !ok {
+		httpx.Fail(c, http.StatusTooManyRequests, "too many attempts, try again in a minute")
+	}
+	return !ok
 }
 
 // dummyHash keeps login timing similar for unknown emails.
@@ -95,8 +118,12 @@ func (h *Handler) login(c *gin.Context) {
 		httpx.Fail(c, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
+	email := strings.ToLower(b.Email)
+	if h.tooMany(c, "login:"+email, LoginAttemptsPerMinute) {
+		return
+	}
 	var u store.User
-	found := h.DB.Where("email = ?", strings.ToLower(b.Email)).First(&u).Error == nil
+	found := h.DB.Where("email = ?", email).First(&u).Error == nil
 	hash := dummyHash
 	if found {
 		hash = []byte(u.PasswordHash)
@@ -132,6 +159,9 @@ func (h *Handler) loginTOTP(c *gin.Context) {
 	claims, err := h.JWT.Parse(tok)
 	if err != nil || claims.Stage != StagePendingTOTP {
 		httpx.Fail(c, http.StatusUnauthorized, "login expired, sign in again")
+		return
+	}
+	if h.tooMany(c, "totp:"+claims.Subject, TOTPAttemptsPerMinute) {
 		return
 	}
 	id, _ := strconv.ParseUint(claims.Subject, 10, 64)

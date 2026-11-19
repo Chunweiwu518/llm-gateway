@@ -163,6 +163,6 @@ func main() {
 		addr = ":9000"
 	}
 	srv := &http.Server{Addr: addr, Handler: newServer().routes(), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("mockupstream listening on %s", addr)
+	log.Printf("mockupstream listening on %q", addr) // #nosec G706 -- addr comes from the operator's LISTEN_ADDR and is quoted
 	log.Fatal(srv.ListenAndServe())
 }

@@ -15,11 +15,12 @@ func SeedDefaults(db *gorm.DB, mockURL string) error {
 	if err := db.Model(&Channel{}).Count(&n).Error; err != nil || n > 0 {
 		return err
 	}
+	// The API keys below are placeholders for the bundled mock upstream, not real credentials.
 	chans := []Channel{
 		{Name: "OpenAI (mock)", Type: ChannelOpenAI, BaseURL: mockURL + "/openai", APIKey: "mock-openai-key",
 			Models: datatypes.JSONSlice[string]{DemoModel}, ModelMap: datatypes.NewJSONType(map[string]string{}),
 			Priority: 1, Enabled: true},
-		{Name: "Anthropic (mock)", Type: ChannelAnthropic, BaseURL: mockURL + "/anthropic", APIKey: "mock-anthropic-key",
+		{Name: "Anthropic (mock)", Type: ChannelAnthropic, BaseURL: mockURL + "/anthropic", APIKey: "mock-anthropic-key", // #nosec G101 -- mock-only placeholder key
 			Models: datatypes.JSONSlice[string]{DemoModel}, ModelMap: datatypes.NewJSONType(map[string]string{DemoModel: "claude-haiku-4-5"}),
 			Priority: 2, Enabled: true},
 	}

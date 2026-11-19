@@ -1,0 +1,28 @@
+{
+	"Golang errors": {},
+	"Issues": [
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "117",
+				"url": "https://cwe.mitre.org/data/definitions/117.html"
+			},
+			"rule_id": "G706",
+			"details": "Log injection via taint analysis: log.Printf",
+			"file": "mockupstream/main.go",
+			"code": "165: \tsrv := \u0026http.Server{Addr: addr, Handler: newServer().routes(), ReadHeaderTimeout: 10 * time.Second}\n166: \tlog.Printf(\"mockupstream listening on %s\", addr)\n167: \tlog.Fatal(srv.ListenAndServe())\n",
+			"line": "166",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		}
+	],
+	"Stats": {
+		"files": 1,
+		"lines": 168,
+		"nosec": 0,
+		"found": 1
+	},
+	"GosecVersion": "dev"
+}

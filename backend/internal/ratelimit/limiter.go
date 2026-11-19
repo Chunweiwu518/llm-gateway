@@ -27,14 +27,19 @@ func New(rdb *redis.Client) *Limiter { return &Limiter{rdb: rdb, now: time.Now} 
 // Allow counts one request for keyID. When Redis fails it allows the request
 // and returns the error so the caller can log it (fail-open).
 func (l *Limiter) Allow(ctx context.Context, keyID uint, rpm int) (bool, error) {
-	k := fmt.Sprintf("rl:%d:%d", keyID, l.now().Unix()/60)
+	return l.AllowKey(ctx, fmt.Sprintf("rl:%d", keyID), rpm)
+}
+
+// AllowKey counts one event for an arbitrary key within the current minute.
+func (l *Limiter) AllowKey(ctx context.Context, key string, perMinute int) (bool, error) {
+	k := fmt.Sprintf("%s:%d", key, l.now().Unix()/60)
 	pipe := l.rdb.TxPipeline()
 	incr := pipe.Incr(ctx, k)
 	pipe.Expire(ctx, k, 70*time.Second)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return true, err
 	}
-	return incr.Val() <= int64(rpm), nil
+	return incr.Val() <= int64(perMinute), nil
 }
 
 // Middleware rejects requests over the key's rpm_limit with 429.

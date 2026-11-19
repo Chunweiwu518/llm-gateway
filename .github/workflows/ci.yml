@@ -29,8 +29,8 @@ jobs:
     env:
       TEST_MYSQL_DSN: gateway:gatewaypass@tcp(127.0.0.1:3306)/gateway?parseTime=true&charset=utf8mb4&loc=UTC
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -45,8 +45,8 @@ jobs:
       run:
         working-directory: mockupstream
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: mockupstream/go.mod
           cache: false
@@ -59,8 +59,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -72,31 +72,31 @@ jobs:
   openapi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: npx -y @redocly/cli@1.34.3 lint docs/openapi.yaml
 
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: cp .env.example .env && docker compose build
 
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: gosec
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.22.10
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
           (cd backend && gosec ./...)
           (cd mockupstream && gosec ./...)
       - name: semgrep
         run: |
-          python3 -m pip install --quiet semgrep==1.142.0
-          semgrep scan --error --metrics=off \
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:1.142.0 \
+            semgrep scan --error --metrics=off \
             --config p/golang --config p/react --config p/typescript \
             --config p/owasp-top-ten --config p/secrets --config p/dockerfile .
