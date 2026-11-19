@@ -13,10 +13,18 @@ import AdminUsers from './pages/admin/Users'
 import AdminChannels from './pages/admin/Channels'
 import AdminPrices from './pages/admin/Prices'
 import AdminUsage from './pages/admin/AllUsage'
+import { ErrorBox } from './components/ui'
 
 function RequireAuth({ admin, children }: { admin?: boolean; children: ReactNode }) {
-  const { user, loading } = useAuth()
+  const { user, loading, error, refresh } = useAuth()
   if (loading) return <div className="center muted">Loading…</div>
+  if (error)
+    return (
+      <div className="center">
+        <ErrorBox error={error} />
+        <button onClick={() => void refresh()}>Retry</button>
+      </div>
+    )
   if (!user) return <Navigate to="/login" replace />
   if (admin && user.role !== 'admin') return <Navigate to="/" replace />
   return children

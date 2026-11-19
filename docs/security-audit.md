@@ -35,7 +35,10 @@
 | 5 | 登入與 TOTP 驗證沒有嘗試次數上限，可暴力猜密碼或 6 位數驗證碼 | 用 Redis 計數：同一 email 每分鐘最多 10 次登入、同一帳號每分鐘最多 5 次 TOTP 驗證，超過回 429 | `TestLoginAttemptsLimited`、`TestTOTPAttemptsLimited` |
 | 6 | 請求 body 沒有大小上限，大型 JSON 會被整個讀進記憶體 | 全部路由套 `http.MaxBytesReader`，上限 1 MiB | `TestLimitBodyRejectsLargeJSON` |
 
-兩項都先寫測試、看到失敗再修。
+| 7 | `max_tokens` 沒有上限，極大值讓成本計算溢位成負數，預扣變成加錢 | `max_tokens` 限 1 到 65536；`Reserve` 拒絕負數金額 | `TestHugeMaxTokensRejected`、`TestReserveRejectsNegativeAmount` |
+| 8 | 上游實際輸出超過預扣時補扣不設限，併發請求可讓餘額變負 | 沒帶 `max_tokens` 時把預扣用的 1024 轉給上游；結算補扣最多扣到餘額歸零 | `TestReservedMaxTokensForwarded`、`TestSettleNeverOverdraws` |
+
+以上各項都先寫測試、看到失敗再修。第 7、8 項是整體程式碼審查找到的。
 
 ## 人工檢查清單
 
@@ -60,6 +63,6 @@
 |---|---|
 | 限流 fail-open | Redis 無法連線時放行請求並記 log。優先維持服務可用；需要嚴格限制時改為 fail-closed |
 | 通路 base_url 可指向任意位址 | 只有管理員能設定，視為受信任操作；對外開放多租戶時需加上目的地白名單，避免 SSRF |
-| 實際用量超過預估時補扣 | 餘額可能短暫小於 0，下一次請求即回 402 |
+| 實際用量超過預扣時 | 只補扣到餘額歸零，差額記 log，由平台吸收 |
 | Swagger UI 從 CDN 載入 | 固定版本號，但沒有加 Subresource Integrity |
 | 上游 4xx 錯誤內容會回給呼叫端 | 方便除錯；內容已截斷，不含通路金鑰 |

@@ -83,14 +83,14 @@ func TestSettleRefundsDifference(t *testing.T) {
 	db := store.OpenTest(t)
 	u := newUser(t, db, 1000)
 	_ = Reserve(db, u.ID, 300)
-	if err := Settle(db, u.ID, 300, 120); err != nil {
+	if _, err := Settle(db, u.ID, 300, 120); err != nil {
 		t.Fatal(err)
 	}
 	if b := balanceOf(db, u.ID); b != 880 {
 		t.Fatalf("want 880 got %d", b)
 	}
 	_ = Reserve(db, u.ID, 100)
-	_ = Settle(db, u.ID, 100, 150)
+	_, _ = Settle(db, u.ID, 100, 150)
 	if b := balanceOf(db, u.ID); b != 730 {
 		t.Fatalf("extra usage must be charged: want 730 got %d", b)
 	}
@@ -132,5 +132,31 @@ func TestTopupCannotGoNegative(t *testing.T) {
 	}
 	if balanceOf(db, u.ID) != 100 {
 		t.Fatal("balance changed on rejected adjustment")
+	}
+}
+
+func TestReserveRejectsNegativeAmount(t *testing.T) {
+	db := store.OpenTest(t)
+	u := newUser(t, db, 1_000)
+	if err := Reserve(db, u.ID, -5_000_000); err == nil {
+		t.Fatal("negative reservation must fail")
+	}
+	if got := balanceOf(db, u.ID); got != 1_000 {
+		t.Fatalf("balance changed to %d", got)
+	}
+}
+
+func TestSettleNeverOverdraws(t *testing.T) {
+	db := store.OpenTest(t)
+	u := newUser(t, db, 1_000) // balance left after reserving 500
+	charged, err := Settle(db, u.ID, 500, 10_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := balanceOf(db, u.ID); got != 0 {
+		t.Fatalf("balance %d, want 0", got)
+	}
+	if charged != 1_500 {
+		t.Fatalf("charged %d, want reserved 500 + remaining 1000", charged)
 	}
 }

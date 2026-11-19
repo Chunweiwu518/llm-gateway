@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -145,5 +146,36 @@ func TestListModels(t *testing.T) {
 	g.r.ServeHTTP(w, req)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"gpt-4o-mini"`) || strings.Contains(w.Body.String(), "priced-no-channel") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHugeMaxTokensRejected(t *testing.T) {
+	var hits int32
+	g := newGateway(t, 10_000_000, fakeUpstream(t, 200, 0, &hits))
+	for _, mt := range []string{"20000000000000", "0", "-1", "1000000"} {
+		w := g.chat(`{"model":"gpt-4o-mini","max_tokens":` + mt + `,"messages":[{"role":"user","content":"hi"}]}`)
+		if w.Code != 400 {
+			t.Fatalf("max_tokens %s: status %d %s", mt, w.Code, w.Body.String())
+		}
+	}
+	if g.balance() != 10_000_000 || hits != 0 {
+		t.Fatalf("balance %d hits %d", g.balance(), hits)
+	}
+}
+
+func TestReservedMaxTokensForwarded(t *testing.T) {
+	var got []byte
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","object":"chat.completion","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	t.Cleanup(up.Close)
+	g := newGateway(t, 10_000_000, up)
+	if w := g.chat(hello); w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+	if !strings.Contains(string(got), `"max_tokens":1024`) {
+		t.Fatalf("upstream body %s lacks the reserved max_tokens", got)
 	}
 }

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -32,17 +33,17 @@ func badRequest(c *gin.Context, code, msg string) {
 	httpx.OpenAIError(c, http.StatusBadRequest, "invalid_request_error", code, msg)
 }
 
+// MaxCompletionTokens is the largest max_tokens a request may ask for.
+const MaxCompletionTokens = 65536
+
 // estimate is the amount reserved before the call: prompt chars/4 plus max_tokens.
+// req.MaxTokens must already be set (see chat).
 func estimate(req ChatRequest, p store.ModelPrice) int64 {
 	chars := 0
 	for _, m := range req.Messages {
 		chars += len([]rune(m.Content))
 	}
-	completion := DefaultMaxTokens
-	if req.MaxTokens != nil && *req.MaxTokens > 0 {
-		completion = *req.MaxTokens
-	}
-	return billing.Cost(p, chars/4+1, completion)
+	return billing.Cost(p, chars/4+1, *req.MaxTokens)
 }
 
 func (h *Handler) chat(c *gin.Context) {
@@ -57,6 +58,14 @@ func (h *Handler) chat(c *gin.Context) {
 	}
 	if req.Model == "" || len(req.Messages) == 0 {
 		badRequest(c, "invalid_request", "model and messages are required")
+		return
+	}
+	if req.MaxTokens == nil {
+		n := DefaultMaxTokens
+		req.MaxTokens = &n // forwarded upstream so completion stays within the reservation
+	}
+	if *req.MaxTokens < 1 || *req.MaxTokens > MaxCompletionTokens {
+		badRequest(c, "invalid_max_tokens", fmt.Sprintf("max_tokens must be between 1 and %d", MaxCompletionTokens))
 		return
 	}
 	var price store.ModelPrice
@@ -87,9 +96,13 @@ func (h *Handler) chat(c *gin.Context) {
 		actual = billing.Cost(price, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 		entry.PromptTokens, entry.CompletionTokens = resp.Usage.PromptTokens, resp.Usage.CompletionTokens
 	}
-	if serr := billing.Settle(h.DB, user.ID, reserved, actual); serr != nil {
+	charged, serr := billing.Settle(h.DB, user.ID, reserved, actual)
+	if serr != nil {
 		log.Printf("settle failed for user %d (reserved %d actual %d): %v", user.ID, reserved, actual, serr)
+	} else if charged < actual {
+		log.Printf("balance short for user %d: cost %d, charged %d", user.ID, actual, charged)
 	}
+	actual = charged
 	entry.Cost, entry.LatencyMs = actual, time.Since(start).Milliseconds()
 	entry.StatusCode = h.respond(c, resp, err)
 	if lerr := h.DB.Create(&entry).Error; lerr != nil {

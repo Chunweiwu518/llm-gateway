@@ -104,7 +104,11 @@ func (h *Handler) credit(c *gin.Context) {
 		return
 	}
 	var u store.User
-	h.DB.First(&u, paramID(c))
+	if err := h.DB.First(&u, paramID(c)).Error; err != nil {
+		log.Printf("reload user after credit failed: %v", err)
+		httpx.Fail(c, http.StatusInternalServerError, "credit applied but the user could not be reloaded")
+		return
+	}
 	c.JSON(http.StatusOK, u)
 }
 
