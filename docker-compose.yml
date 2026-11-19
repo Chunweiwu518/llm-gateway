@@ -6,15 +6,50 @@ services:
       MYSQL_DATABASE: gateway
       MYSQL_USER: gateway
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gatewaypass}
-    ports: ["3307:3306"]
+    ports: ["127.0.0.1:3307:3306"]
+    volumes: [mysql-data:/var/lib/mysql]
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
-      retries: 20
+      retries: 30
+
   redis:
     image: redis:7.4-alpine
-    ports: ["6380:6379"]
+    ports: ["127.0.0.1:6380:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 20
+
+  mockupstream:
+    build: ./mockupstream
+    ports: ["127.0.0.1:9000:9000"]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        COMMIT: ${COMMIT:-dev}
+    environment:
+      DB_DSN: gateway:${MYSQL_PASSWORD:-gatewaypass}@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&loc=UTC
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      MOCK_UPSTREAM_URL: http://mockupstream:9000
+      UPSTREAM_TIMEOUT: ${UPSTREAM_TIMEOUT:-10s}
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mockupstream: { condition: service_healthy }
+
+  web:
+    build: ./web
+    ports: ["127.0.0.1:5173:8080"]
+    depends_on:
+      gateway: { condition: service_healthy }
+
+volumes:
+  mysql-data:
