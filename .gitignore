@@ -1,0 +1,9 @@
+.superpowers/
+.env
+node_modules/
+dist/
+web/dist/
+test-results/
+playwright-report/
+*.out
+/bin/
