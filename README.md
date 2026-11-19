@@ -90,10 +90,10 @@ docker compose up -d --build
 ## 測試
 
 ```bash
-# 後端：單元與整合測試，需要 docker compose 的 MySQL
-docker compose up -d mysql
+# 後端：單元與整合測試，使用獨立的測試資料庫（每個測試會清空資料表）
+docker compose --profile test up -d mysql-test
 cd backend
-TEST_MYSQL_DSN='gateway:gatewaypass@tcp(127.0.0.1:3307)/gateway?parseTime=true&charset=utf8mb4&loc=UTC' \
+TEST_MYSQL_DSN='gateway:gatewaypass@tcp(127.0.0.1:3308)/gateway_test?parseTime=true&charset=utf8mb4&loc=UTC' \
   go test -race -p 1 ./...
 
 # 假上游

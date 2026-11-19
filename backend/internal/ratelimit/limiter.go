@@ -24,6 +24,9 @@ type Limiter struct {
 // New returns a limiter backed by rdb.
 func New(rdb *redis.Client) *Limiter { return &Limiter{rdb: rdb, now: time.Now} }
 
+// SetClock replaces the time source; tests use it to stay inside one window.
+func (l *Limiter) SetClock(now func() time.Time) { l.now = now }
+
 // Allow counts one request for keyID. When Redis fails it allows the request
 // and returns the error so the caller can log it (fail-open).
 func (l *Limiter) Allow(ctx context.Context, keyID uint, rpm int) (bool, error) {

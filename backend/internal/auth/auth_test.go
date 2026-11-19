@@ -177,6 +177,8 @@ func setupLimited(t *testing.T) *env {
 	e := setup(t)
 	mr := miniredis.RunT(t)
 	e.h.Limiter = ratelimit.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	fixed := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	e.h.Limiter.SetClock(func() time.Time { return fixed }) // bcrypt is slow under -race; never cross a minute
 	return e
 }
 

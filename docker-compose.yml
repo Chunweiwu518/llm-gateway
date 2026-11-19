@@ -13,6 +13,18 @@ services:
       interval: 5s
       retries: 30
 
+  # Throwaway database for backend tests: docker compose --profile test up -d mysql-test
+  mysql-test:
+    image: mysql:8.4
+    profiles: [test]
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: gateway_test
+      MYSQL_USER: gateway
+      MYSQL_PASSWORD: gatewaypass
+    ports: ["127.0.0.1:3308:3306"]
+    tmpfs: [/var/lib/mysql]
+
   redis:
     image: redis:7.4-alpine
     ports: ["127.0.0.1:6380:6379"]
