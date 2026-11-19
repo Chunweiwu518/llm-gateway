@@ -25,7 +25,7 @@ export default function Dashboard() {
       <div className="grid">
         <Card title="Balance">
           <ErrorBox error={balance.error} />
-          <div className="big" data-testid="balance">{balance.data ? usd(balance.data.balance) : '—'}</div>
+          <div className="big" data-testid="balance">{balance.data ? usd(balance.data.balance, 6) : '—'}</div>
           <Link to="/billing">Top up →</Link>
         </Card>
         <Card title="Last 7 days">

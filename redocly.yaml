@@ -1,0 +1,8 @@
+extends: [recommended]
+rules:
+  no-server-example.com: off   # local demo servers on purpose
+  operation-4xx-response: off
+  operation-operationId: off
+  info-license: off
+  tag-description: off
+  security-defined: off        # auth endpoints are public by design

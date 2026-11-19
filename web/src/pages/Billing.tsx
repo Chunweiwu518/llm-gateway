@@ -36,7 +36,7 @@ export default function Billing() {
       <div className="grid">
         <Card title="Balance">
           <ErrorBox error={balance.error} />
-          <div className="big" data-testid="balance">{balance.data ? usd(balance.data.balance) : '—'}</div>
+          <div className="big" data-testid="balance">{balance.data ? usd(balance.data.balance, 6) : '—'}</div>
           <p className="muted small">Each request is charged by prompt and completion tokens at the model's price.</p>
         </Card>
         <Card title="Top up">
