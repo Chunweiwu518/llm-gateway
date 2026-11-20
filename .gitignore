@@ -9,3 +9,5 @@ playwright-report/
 /bin/
 .playwright-mcp/
 docs/plans/
+loadtest/keys.json
+loadtest/results/warmup.*
