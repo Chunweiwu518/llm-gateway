@@ -1,0 +1,25 @@
+{
+ "url": "http://127.0.0.1:5173/login",
+ "lighthouse": "12.8.2",
+ "scores": {
+  "performance": 94,
+  "accessibility": 100,
+  "best-practices": 96,
+  "seo": 82
+ },
+ "fcp_ms": 2402,
+ "lcp_ms": 2553,
+ "tbt_ms": 0,
+ "cls": 0,
+ "transfer_bytes": 304799,
+ "failed_audits": [
+  "errors-in-console",
+  "first-contentful-paint",
+  "interactive",
+  "largest-contentful-paint",
+  "meta-description",
+  "network-dependency-tree-insight",
+  "robots-txt",
+  "speed-index"
+ ]
+}

@@ -1,19 +1,22 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from './auth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Register from './pages/Register'
-import Dashboard from './pages/Dashboard'
-import Keys from './pages/Keys'
-import Usage from './pages/Usage'
-import Billing from './pages/Billing'
-import Security from './pages/Security'
-import AdminUsers from './pages/admin/Users'
-import AdminChannels from './pages/admin/Channels'
-import AdminPrices from './pages/admin/Prices'
-import AdminUsage from './pages/admin/AllUsage'
 import { ErrorBox } from './components/ui'
+
+// Console and admin pages load on demand, so the login screen ships only its own code.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Keys = lazy(() => import('./pages/Keys'))
+const Usage = lazy(() => import('./pages/Usage'))
+const Billing = lazy(() => import('./pages/Billing'))
+const Security = lazy(() => import('./pages/Security'))
+const AdminUsers = lazy(() => import('./pages/admin/Users'))
+const AdminChannels = lazy(() => import('./pages/admin/Channels'))
+const AdminPrices = lazy(() => import('./pages/admin/Prices'))
+const AdminUsage = lazy(() => import('./pages/admin/AllUsage'))
 
 function RequireAuth({ admin, children }: { admin?: boolean; children: ReactNode }) {
   const { user, loading, error, refresh } = useAuth()
@@ -32,6 +35,7 @@ function RequireAuth({ admin, children }: { admin?: boolean; children: ReactNode
 
 export default function App() {
   return (
+    <Suspense fallback={<div className="center muted">Loading…</div>}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
@@ -54,5 +58,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   )
 }

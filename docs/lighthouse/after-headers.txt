@@ -1,0 +1,19 @@
+== index.html
+HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Control: no-cache
+== main script /assets/index-CwkGR_EK.js (Accept-Encoding: gzip)
+HTTP/1.1 200 OK
+Cache-Control: public, max-age=31536000, immutable
+Content-Encoding: gzip
+bytes uncompressed: 256520
+bytes with gzip:    81008
+== scripts and styles referenced by /login
+/assets/index-CwkGR_EK.js
+/assets/index-DGZI-ZDa.css
+== robots.txt
+HTTP/1.1 200 OK
+Content-Type: text/plain
+User-agent: *
+== Accept-Encoding: br
+no content-encoding returned

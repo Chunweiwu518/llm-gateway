@@ -1,0 +1,16 @@
+== index.html
+HTTP/1.1 200 OK
+Content-Type: text/html
+== main script /assets/index-k7N2iP-B.js (Accept-Encoding: gzip)
+HTTP/1.1 200 OK
+bytes uncompressed: 297885
+bytes with gzip:    297885
+== scripts and styles referenced by /login
+/assets/index-k7N2iP-B.js
+/assets/index-DGZI-ZDa.css
+== robots.txt
+HTTP/1.1 200 OK
+Content-Type: text/html
+<!doctype html>
+== Accept-Encoding: br
+no content-encoding returned
