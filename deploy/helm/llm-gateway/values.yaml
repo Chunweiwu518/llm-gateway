@@ -1,0 +1,31 @@
+# Service names are fixed (gateway, billing, mysql, ...) because web/nginx.conf proxies to "gateway",
+# so install one release per namespace.
+images:
+  gateway: llm-gateway/gateway:0.1.0
+  billing: llm-gateway/billing:0.1.0
+  web: llm-gateway/web:0.1.0
+  mockupstream: llm-gateway/mockupstream:0.1.0
+  mysql: mysql:8.4
+  redis: redis:7.4-alpine
+  kafka: apache/kafka:3.9.1
+  rabbitmq: rabbitmq:3.13-alpine
+  busybox: busybox:1.36
+pullPolicy: IfNotPresent
+
+# Required, no defaults: set with --set or a values file.
+jwtSecret: "" # at least 32 characters
+adminEmail: admin@example.com
+adminPassword: ""
+
+# Development defaults. Change them for anything that is not a throwaway cluster.
+mysqlRootPassword: rootpass
+mysqlPassword: gatewaypass
+rabbitmqPassword: rabbitpass
+
+lowBalanceThreshold: 500000 # micro-USD
+upstreamTimeout: 10s
+
+# MySQL data lives in an emptyDir: it is lost when the pod is rescheduled.
+resources:
+  kafka: { requests: { memory: 512Mi, cpu: 100m }, limits: { memory: 1Gi } }
+  default: { requests: { memory: 64Mi, cpu: 25m }, limits: { memory: 512Mi } }

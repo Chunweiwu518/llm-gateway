@@ -1,0 +1,175 @@
+# Application services: mockupstream, billing (gRPC), notifier, gateway, web.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mockupstream
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: mockupstream } }
+  template:
+    metadata: { labels: { app: mockupstream } }
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mockupstream
+          image: {{ .Values.images.mockupstream }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          ports: [{ containerPort: 9000 }]
+          readinessProbe: { httpGet: { path: /healthz, port: 9000 }, periodSeconds: 5 }
+          resources: {{- toYaml .Values.resources.default | nindent 12 }}
+          {{- include "lg.appsec" (dict "uid" 10001) | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockupstream
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  selector: { app: mockupstream }
+  ports: [{ port: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: billing } }
+  template:
+    metadata: { labels: { app: billing } }
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        {{- include "lg.wait" (dict "root" . "name" "mysql" "host" "mysql" "port" 3306) | nindent 8 }}
+        {{- include "lg.wait" (dict "root" . "name" "kafka" "host" "kafka" "port" 9092) | nindent 8 }}
+        {{- include "lg.wait" (dict "root" . "name" "rabbitmq" "host" "rabbitmq" "port" 5672) | nindent 8 }}
+      containers:
+        - name: billing
+          image: {{ .Values.images.billing }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          env:
+            - { name: MYSQL_PASSWORD, valueFrom: { secretKeyRef: { name: llm-gateway, key: mysql-password } } }
+            - { name: RABBITMQ_PASSWORD, valueFrom: { secretKeyRef: { name: llm-gateway, key: rabbitmq-password } } }
+            - { name: DB_DSN, value: "gateway:$(MYSQL_PASSWORD)@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&loc=UTC" }
+            - { name: KAFKA_BROKERS, value: "kafka:9092" }
+            - { name: RABBITMQ_URL, value: "amqp://gateway:$(RABBITMQ_PASSWORD)@rabbitmq:5672/" }
+            - { name: LOW_BALANCE_THRESHOLD, value: {{ .Values.lowBalanceThreshold | quote }} }
+          ports: [{ containerPort: 8081 }]
+          readinessProbe: { tcpSocket: { port: 8081 }, periodSeconds: 5 }
+          resources: {{- toYaml .Values.resources.default | nindent 12 }}
+          {{- include "lg.appsec" (dict "uid" 10001) | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  selector: { app: billing }
+  ports: [{ port: 8081 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: notifier } }
+  template:
+    metadata: { labels: { app: notifier } }
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        {{- include "lg.wait" (dict "root" . "name" "rabbitmq" "host" "rabbitmq" "port" 5672) | nindent 8 }}
+      containers:
+        - name: notifier
+          image: {{ .Values.images.billing }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          command: ["/app/notifier"]
+          env:
+            - { name: RABBITMQ_PASSWORD, valueFrom: { secretKeyRef: { name: llm-gateway, key: rabbitmq-password } } }
+            - { name: RABBITMQ_URL, value: "amqp://gateway:$(RABBITMQ_PASSWORD)@rabbitmq:5672/" }
+          resources: {{- toYaml .Values.resources.default | nindent 12 }}
+          {{- include "lg.appsec" (dict "uid" 10001) | nindent 10 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: gateway } }
+  template:
+    metadata: { labels: { app: gateway } }
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        {{- include "lg.wait" (dict "root" . "name" "mysql" "host" "mysql" "port" 3306) | nindent 8 }}
+        {{- include "lg.wait" (dict "root" . "name" "redis" "host" "redis" "port" 6379) | nindent 8 }}
+        {{- include "lg.wait" (dict "root" . "name" "billing" "host" "billing" "port" 8081) | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ .Values.images.gateway }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          env:
+            - { name: MYSQL_PASSWORD, valueFrom: { secretKeyRef: { name: llm-gateway, key: mysql-password } } }
+            - { name: DB_DSN, value: "gateway:$(MYSQL_PASSWORD)@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&loc=UTC" }
+            - { name: REDIS_ADDR, value: "redis:6379" }
+            - { name: JWT_SECRET, valueFrom: { secretKeyRef: { name: llm-gateway, key: jwt-secret } } }
+            - { name: ADMIN_EMAIL, value: {{ .Values.adminEmail | quote }} }
+            - { name: ADMIN_PASSWORD, valueFrom: { secretKeyRef: { name: llm-gateway, key: admin-password } } }
+            - { name: MOCK_UPSTREAM_URL, value: "http://mockupstream:9000" }
+            - { name: UPSTREAM_TIMEOUT, value: {{ .Values.upstreamTimeout | quote }} }
+            - { name: BILLING_ADDR, value: "billing:8081" }
+            - { name: KAFKA_BROKERS, value: "kafka:9092" }
+          ports: [{ containerPort: 8080 }]
+          readinessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 5 }
+          resources: {{- toYaml .Values.resources.default | nindent 12 }}
+          {{- include "lg.appsec" (dict "uid" 10001) | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  selector: { app: gateway }
+  ports: [{ port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata: { labels: { app: web } }
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: web
+          image: {{ .Values.images.web }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          ports: [{ containerPort: 8080 }]
+          readinessProbe: { httpGet: { path: /robots.txt, port: 8080 }, periodSeconds: 5 }
+          resources: {{- toYaml .Values.resources.default | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels: {{- include "lg.labels" . | nindent 4 }}
+spec:
+  selector: { app: web }
+  ports: [{ port: 8080 }]
