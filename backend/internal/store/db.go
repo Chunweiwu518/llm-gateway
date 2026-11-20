@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
@@ -20,6 +21,23 @@ func Open(dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
+}
+
+// ConfigurePool bounds the connection pool. Without it database/sql opens
+// unlimited connections but keeps only 2 idle, so bursts churn connections
+// and can exhaust ephemeral ports. maxOpen <= 0 leaves the Go defaults.
+func ConfigurePool(db *gorm.DB, maxOpen, maxIdle int, maxLifetime time.Duration) error {
+	if maxOpen <= 0 {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(maxLifetime)
+	return nil
 }
 
 // HashPassword returns a bcrypt hash of the password.

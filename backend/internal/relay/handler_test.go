@@ -22,6 +22,7 @@ type gw struct {
 	db  *gorm.DB
 	key string
 	uid uint
+	h   *Handler
 }
 
 // newGateway wires /v1 with one channel per upstream and a priced model.
@@ -41,7 +42,7 @@ func newGateway(t *testing.T, balance int64, upstreams ...*httptest.Server) *gw 
 	r := gin.New()
 	h := &Handler{DB: db, Router: NewRouter(db, 300*time.Millisecond)}
 	h.Routes(r.Group("/v1", apikey.Authenticate(db)))
-	return &gw{r: r, db: db, key: plain, uid: u.ID}
+	return &gw{r: r, db: db, key: plain, uid: u.ID, h: h}
 }
 
 func (g *gw) chat(body string) *httptest.ResponseRecorder {

@@ -37,6 +37,64 @@ services:
     build: ./mockupstream
     ports: ["127.0.0.1:9000:9000"]
 
+  # Single-node KRaft broker; usage events flow gateway -> usage.events -> billing -> MySQL.
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: gateway
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbitpass}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 30
+
+  billing:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.billing
+    environment:
+      DB_DSN: gateway:${MYSQL_PASSWORD:-gatewaypass}@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&loc=UTC
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://gateway:${RABBITMQ_PASSWORD:-rabbitpass}@rabbitmq:5672/
+      LOW_BALANCE_THRESHOLD: ${LOW_BALANCE_THRESHOLD:-500000}
+    ports: ["127.0.0.1:8081:8081"]
+    restart: on-failure
+    depends_on:
+      mysql: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notifier:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.billing
+    entrypoint: ["/app/notifier"]
+    environment:
+      RABBITMQ_URL: amqp://gateway:${RABBITMQ_PASSWORD:-rabbitpass}@rabbitmq:5672/
+    restart: on-failure
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
   gateway:
     build:
       context: .
@@ -51,12 +109,19 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       MOCK_UPSTREAM_URL: http://mockupstream:9000
       UPSTREAM_TIMEOUT: ${UPSTREAM_TIMEOUT:-10s}
+      # Set BILLING_ADDR= or KAFKA_BROKERS= (empty) to fall back to in-process settlement or synchronous usage writes.
+      BILLING_ADDR: ${BILLING_ADDR-billing:8081}
+      KAFKA_BROKERS: ${KAFKA_BROKERS-kafka:9092}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-64}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-64}
+      LAST_USED_INTERVAL: ${LAST_USED_INTERVAL:-1m}
     ports: ["127.0.0.1:8080:8080"]
     restart: on-failure
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
       mockupstream: { condition: service_healthy }
+      billing: { condition: service_healthy }
 
   web:
     build: ./web

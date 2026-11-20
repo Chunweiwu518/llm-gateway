@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -21,6 +22,40 @@ import (
 type Handler struct {
 	DB     *gorm.DB
 	Router *Router
+	// Settler closes a reservation. Nil settles directly in MySQL; main wires the gRPC billing service.
+	Settler Settler
+	// Usage records finished calls. Nil writes the usage row synchronously; main wires Kafka.
+	Usage UsageSink
+}
+
+// Settler closes a reservation and returns the amount actually charged.
+type Settler interface {
+	Settle(ctx context.Context, userID uint, reserved, actual int64) (int64, error)
+}
+
+// UsageSink takes a finished call's usage row and must not block or fail the request.
+type UsageSink interface {
+	Record(e store.UsageLog)
+}
+
+func (h *Handler) settle(ctx context.Context, userID uint, reserved, actual int64) (int64, error) {
+	if h.Settler != nil {
+		// Settlement must finish even when the caller hangs up mid-request.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		return h.Settler.Settle(ctx, userID, reserved, actual)
+	}
+	return billing.Settle(h.DB, userID, reserved, actual)
+}
+
+func (h *Handler) record(e store.UsageLog) {
+	if h.Usage != nil {
+		h.Usage.Record(e)
+		return
+	}
+	if err := h.DB.Create(&e).Error; err != nil {
+		log.Printf("write usage log failed: %v", err)
+	}
 }
 
 // Routes registers /v1 routes on a group that already authenticates the key.
@@ -96,7 +131,7 @@ func (h *Handler) chat(c *gin.Context) {
 		actual = billing.Cost(price, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 		entry.PromptTokens, entry.CompletionTokens = resp.Usage.PromptTokens, resp.Usage.CompletionTokens
 	}
-	charged, serr := billing.Settle(h.DB, user.ID, reserved, actual)
+	charged, serr := h.settle(c.Request.Context(), user.ID, reserved, actual)
 	if serr != nil {
 		log.Printf("settle failed for user %d (reserved %d actual %d): %v", user.ID, reserved, actual, serr)
 	} else if charged < actual {
@@ -105,9 +140,7 @@ func (h *Handler) chat(c *gin.Context) {
 	actual = charged
 	entry.Cost, entry.LatencyMs = actual, time.Since(start).Milliseconds()
 	entry.StatusCode = h.respond(c, resp, err)
-	if lerr := h.DB.Create(&entry).Error; lerr != nil {
-		log.Printf("write usage log failed: %v", lerr)
-	}
+	h.record(entry)
 }
 
 // respond writes the result and returns the HTTP status sent.

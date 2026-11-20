@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package billing.v1;
+
+option go_package = "github.com/Chunweiwu518/llm-gateway/backend/internal/billingpb";
+
+// Billing owns the prepaid balance after a call finishes.
+service Billing {
+  // Settle closes a reservation: it refunds reserved-actual, or charges the
+  // extra up to the remaining balance, and returns what was actually charged.
+  rpc Settle(SettleRequest) returns (SettleResponse);
+  // GetBalance returns the current balance in micro-USD.
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
+
+message SettleRequest {
+  uint64 user_id = 1;
+  int64 reserved = 2; // micro-USD held before the upstream call
+  int64 actual = 3;   // micro-USD the call really cost
+}
+
+message SettleResponse {
+  int64 charged = 1; // micro-USD charged in total (never above the reservation plus balance)
+  int64 balance = 2; // balance after settlement
+}
+
+message GetBalanceRequest {
+  uint64 user_id = 1;
+}
+
+message GetBalanceResponse {
+  int64 balance = 1;
+}

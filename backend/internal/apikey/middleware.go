@@ -22,8 +22,14 @@ func unauthorized(c *gin.Context, msg string) {
 	httpx.OpenAIError(c, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key", msg)
 }
 
-// Authenticate checks "Authorization: Bearer sk-..." for /v1 routes.
-func Authenticate(db *gorm.DB) gin.HandlerFunc {
+// Authenticate checks "Authorization: Bearer sk-..." for /v1 routes and stamps
+// last_used_at on every request.
+func Authenticate(db *gorm.DB) gin.HandlerFunc { return AuthenticateWith(db, 0) }
+
+// AuthenticateWith is Authenticate, but writes last_used_at only when the stored
+// value is older than lastUsedEvery (0 = every request). This takes a MySQL
+// write off the hot path; last_used_at is then accurate to within that interval.
+func AuthenticateWith(db *gorm.DB, lastUsedEvery time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		plain, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
 		if !ok || !strings.HasPrefix(plain, "sk-") {
@@ -40,8 +46,10 @@ func Authenticate(db *gorm.DB) gin.HandlerFunc {
 			unauthorized(c, "API key or account disabled")
 			return
 		}
-		if err := db.Model(&k).UpdateColumn("last_used_at", time.Now()).Error; err != nil {
-			log.Printf("record key last use failed: %v", err)
+		if lastUsedEvery <= 0 || k.LastUsedAt == nil || time.Since(*k.LastUsedAt) >= lastUsedEvery {
+			if err := db.Model(&k).UpdateColumn("last_used_at", time.Now()).Error; err != nil {
+				log.Printf("record key last use failed: %v", err)
+			}
 		}
 		c.Set("apikey", &k)
 		c.Set("keyuser", &u)

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +17,9 @@ import (
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/apikey"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/auth"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/billing"
+	"github.com/Chunweiwu518/llm-gateway/backend/internal/billingsvc"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/config"
+	"github.com/Chunweiwu518/llm-gateway/backend/internal/events"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/httpx"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/ratelimit"
 	"github.com/Chunweiwu518/llm-gateway/backend/internal/relay"
@@ -30,6 +37,9 @@ func main() {
 	db, err := store.Open(cfg.DSN)
 	if err != nil {
 		log.Fatalf("db: %v", err)
+	}
+	if err := store.ConfigurePool(db, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLifetime); err != nil {
+		log.Fatalf("db pool: %v", err)
 	}
 	if err := store.SeedAdmin(db, cfg.AdminEmail, cfg.AdminPassword); err != nil {
 		log.Fatalf("seed admin: %v", err)
@@ -59,12 +69,45 @@ func main() {
 	(&billing.Handler{DB: db}).Routes(api, requireUser)
 	(&admin.Handler{DB: db}).Routes(api.Group("/admin", requireUser, auth.RequireAdmin()))
 
-	v1 := r.Group("/v1", apikey.Authenticate(db), ratelimit.Middleware(limiter))
-	(&relay.Handler{DB: db, Router: relay.NewRouter(db, cfg.UpstreamTimeout)}).Routes(v1)
+	v1 := r.Group("/v1", apikey.AuthenticateWith(db, cfg.LastUsedEvery), ratelimit.Middleware(limiter))
+	var pub *events.Publisher
+	relayH := &relay.Handler{DB: db, Router: relay.NewRouter(db, cfg.UpstreamTimeout)}
+	if cfg.BillingAddr != "" {
+		bc, err := billingsvc.NewClient(cfg.BillingAddr)
+		if err != nil {
+			log.Fatalf("billing client: %v", err)
+		}
+		relayH.Settler = bc
+		log.Printf("settling through billing service at %s", cfg.BillingAddr)
+	}
+	if len(cfg.KafkaBrokers) > 0 {
+		pub = events.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopic, db)
+		relayH.Usage = pub
+		log.Printf("publishing usage events to kafka %v topic %s", cfg.KafkaBrokers, cfg.KafkaTopic)
+	}
+	relayH.Routes(v1)
 
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("gateway %s listening on %s", commit, cfg.ListenAddr)
-	log.Fatal(srv.ListenAndServe())
+	go func() {
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+	// On SIGTERM finish in-flight requests, then flush queued Kafka records before exiting.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
+	if pub != nil {
+		if err := pub.Close(); err != nil {
+			log.Printf("flush kafka: %v", err)
+		}
+	}
 }
 
 const swaggerHTML = `<!doctype html>

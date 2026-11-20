@@ -26,7 +26,11 @@ test('developer flow: register, top up, create key, call API, see usage', async 
   expect(body.choices[0].message.content).toBe('[mock-openai] hello from e2e')
 
   await page.getByRole('link', { name: 'Usage' }).click()
-  await expect(page.getByRole('cell', { name: 'OpenAI (mock)' })).toBeVisible()
+  // usage rows reach MySQL asynchronously (Kafka -> billing consumer), so reload until the row shows up
+  await expect(async () => {
+    await page.reload()
+    await expect(page.getByRole('cell', { name: 'OpenAI (mock)' })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
   await page.getByRole('link', { name: 'Billing' }).click()
   await expect(page.getByTestId('balance')).not.toHaveText('$5.000000')
 })
